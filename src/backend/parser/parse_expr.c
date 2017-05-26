@@ -1255,7 +1255,7 @@ transformAExprIn(ParseState *pstate, A_Expr *a)
 			/* ROW() op ROW() is handled specially */
 			cmp = make_row_comparison_op(pstate,
 										 a->name,
-										 copyObject(((RowExpr *) lexpr)->args),
+									   copyObject(((RowExpr *) lexpr)->args),
 										 ((RowExpr *) rexpr)->args,
 										 a->location);
 		}
@@ -1669,7 +1669,7 @@ transformCaseExpr(ParseState *pstate, CaseExpr *c)
 	resultexprs = NIL;
 	foreach(l, c->args)
 	{
-		CaseWhen   *w = castNode(CaseWhen, lfirst(l));
+		CaseWhen   *w = lfirst_node(CaseWhen, l);
 		CaseWhen   *neww = makeNode(CaseWhen);
 		Node	   *warg;
 
@@ -2334,7 +2334,7 @@ transformXmlExpr(ParseState *pstate, XmlExpr *x)
 
 	foreach(lc, x->named_args)
 	{
-		ResTarget  *r = castNode(ResTarget, lfirst(lc));
+		ResTarget  *r = lfirst_node(ResTarget, lc);
 		Node	   *expr;
 		char	   *argname;
 

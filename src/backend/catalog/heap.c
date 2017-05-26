@@ -52,7 +52,6 @@
 #include "catalog/pg_opclass.h"
 #include "catalog/pg_partitioned_table.h"
 #include "catalog/pg_statistic.h"
-#include "catalog/pg_statistic_ext.h"
 #include "catalog/pg_subscription_rel.h"
 #include "catalog/pg_tablespace.h"
 #include "catalog/pg_type.h"
@@ -68,6 +67,7 @@
 #include "parser/parse_collate.h"
 #include "parser/parse_expr.h"
 #include "parser/parse_relation.h"
+#include "storage/lmgr.h"
 #include "storage/predicate.h"
 #include "storage/smgr.h"
 #include "utils/acl.h"
@@ -1614,10 +1614,7 @@ RemoveAttributeById(Oid relid, AttrNumber attnum)
 	heap_close(attr_rel, RowExclusiveLock);
 
 	if (attnum > 0)
-	{
 		RemoveStatistics(relid, attnum);
-		RemoveStatisticsExt(relid, attnum);
-	}
 
 	relation_close(rel, NoLock);
 }
@@ -1759,28 +1756,31 @@ void
 heap_drop_with_catalog(Oid relid)
 {
 	Relation	rel;
-	Oid			parentOid;
-	Relation	parent = NULL;
+	HeapTuple	tuple;
+	Oid			parentOid = InvalidOid;
+
+	/*
+	 * To drop a partition safely, we must grab exclusive lock on its parent,
+	 * because another backend might be about to execute a query on the parent
+	 * table.  If it relies on previously cached partition descriptor, then it
+	 * could attempt to access the just-dropped relation as its partition. We
+	 * must therefore take a table lock strong enough to prevent all queries
+	 * on the table from proceeding until we commit and send out a
+	 * shared-cache-inval notice that will make them update their index lists.
+	 */
+	tuple = SearchSysCache1(RELOID, ObjectIdGetDatum(relid));
+	if (((Form_pg_class) GETSTRUCT(tuple))->relispartition)
+	{
+		parentOid = get_partition_parent(relid);
+		LockRelationOid(parentOid, AccessExclusiveLock);
+	}
+
+	ReleaseSysCache(tuple);
 
 	/*
 	 * Open and lock the relation.
 	 */
 	rel = relation_open(relid, AccessExclusiveLock);
-
-	/*
-	 * If the relation is a partition, we must grab exclusive lock on its
-	 * parent because we need to update its partition descriptor. We must take
-	 * a table lock strong enough to prevent all queries on the parent from
-	 * proceeding until we commit and send out a shared-cache-inval notice
-	 * that will make them update their partition descriptor. Sometimes, doing
-	 * this is cycles spent uselessly, especially if the parent will be
-	 * dropped as part of the same command anyway.
-	 */
-	if (rel->rd_rel->relispartition)
-	{
-		parentOid = get_partition_parent(relid);
-		parent = heap_open(parentOid, AccessExclusiveLock);
-	}
 
 	/*
 	 * There can no longer be anyone *else* touching the relation, but we
@@ -1869,7 +1869,6 @@ heap_drop_with_catalog(Oid relid)
 	 * delete statistics
 	 */
 	RemoveStatistics(relid, 0);
-	RemoveStatisticsExt(relid, 0);
 
 	/*
 	 * delete attribute tuples
@@ -1881,14 +1880,14 @@ heap_drop_with_catalog(Oid relid)
 	 */
 	DeleteRelationTuple(relid);
 
-	if (parent)
+	if (OidIsValid(parentOid))
 	{
 		/*
 		 * Invalidate the parent's relcache so that the partition is no longer
 		 * included in its partition descriptor.
 		 */
-		CacheInvalidateRelcache(parent);
-		heap_close(parent, NoLock);		/* keep the lock */
+		CacheInvalidateRelcacheByRelid(parentOid);
+		/* keep the lock */
 	}
 }
 
@@ -2778,75 +2777,6 @@ RemoveStatistics(Oid relid, AttrNumber attnum)
 	systable_endscan(scan);
 
 	heap_close(pgstatistic, RowExclusiveLock);
-}
-
-
-/*
- * RemoveStatisticsExt --- remove entries in pg_statistic_ext for a relation
- *
- * If attnum is zero, remove all entries for rel; else remove only the
- * one(s) involving that column.
- */
-void
-RemoveStatisticsExt(Oid relid, AttrNumber attnum)
-{
-	Relation	pgstatisticext;
-	SysScanDesc scan;
-	ScanKeyData key;
-	HeapTuple	tuple;
-
-	/*
-	 * Scan pg_statistic_ext to delete relevant tuples
-	 */
-	pgstatisticext = heap_open(StatisticExtRelationId, RowExclusiveLock);
-
-	ScanKeyInit(&key,
-				Anum_pg_statistic_ext_starelid,
-				BTEqualStrategyNumber, F_OIDEQ,
-				ObjectIdGetDatum(relid));
-
-	scan = systable_beginscan(pgstatisticext,
-							  StatisticExtRelidIndexId,
-							  true, NULL, 1, &key);
-
-	while (HeapTupleIsValid(tuple = systable_getnext(scan)))
-	{
-		bool		delete = false;
-
-		if (attnum == 0)
-			delete = true;
-		else if (attnum != 0)
-		{
-			Form_pg_statistic_ext	staForm;
-			int			i;
-
-			/*
-			 * Decode the stakeys array and delete any stats that involve the
-			 * specified column.
-			 */
-			staForm = (Form_pg_statistic_ext) GETSTRUCT(tuple);
-			for (i = 0; i < staForm->stakeys.dim1; i++)
-			{
-				if (staForm->stakeys.values[i] == attnum)
-				{
-					delete = true;
-					break;
-				}
-			}
-		}
-
-		if (delete)
-		{
-			CatalogTupleDelete(pgstatisticext, &tuple->t_self);
-			deleteDependencyRecordsFor(StatisticExtRelationId,
-									   HeapTupleGetOid(tuple),
-									   false);
-		}
-	}
-
-	systable_endscan(scan);
-
-	heap_close(pgstatisticext, RowExclusiveLock);
 }
 
 

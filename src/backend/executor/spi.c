@@ -1197,9 +1197,6 @@ SPI_cursor_open_internal(const char *name, SPIPlanPtr plan,
 	cplan = GetCachedPlan(plansource, paramLI, false, _SPI_current->queryEnv);
 	stmt_list = cplan->stmt_list;
 
-	/* Pop the error context stack */
-	error_context_stack = spierrcontext.previous;
-
 	if (!plan->saved)
 	{
 		/*
@@ -1233,9 +1230,9 @@ SPI_cursor_open_internal(const char *name, SPIPlanPtr plan,
 	if (!(portal->cursorOptions & (CURSOR_OPT_SCROLL | CURSOR_OPT_NO_SCROLL)))
 	{
 		if (list_length(stmt_list) == 1 &&
-			castNode(PlannedStmt, linitial(stmt_list))->commandType != CMD_UTILITY &&
-			castNode(PlannedStmt, linitial(stmt_list))->rowMarks == NIL &&
-			ExecSupportsBackwardScan(castNode(PlannedStmt, linitial(stmt_list))->planTree))
+		 linitial_node(PlannedStmt, stmt_list)->commandType != CMD_UTILITY &&
+			linitial_node(PlannedStmt, stmt_list)->rowMarks == NIL &&
+			ExecSupportsBackwardScan(linitial_node(PlannedStmt, stmt_list)->planTree))
 			portal->cursorOptions |= CURSOR_OPT_SCROLL;
 		else
 			portal->cursorOptions |= CURSOR_OPT_NO_SCROLL;
@@ -1249,8 +1246,8 @@ SPI_cursor_open_internal(const char *name, SPIPlanPtr plan,
 	if (portal->cursorOptions & CURSOR_OPT_SCROLL)
 	{
 		if (list_length(stmt_list) == 1 &&
-			castNode(PlannedStmt, linitial(stmt_list))->commandType != CMD_UTILITY &&
-			castNode(PlannedStmt, linitial(stmt_list))->rowMarks != NIL)
+		 linitial_node(PlannedStmt, stmt_list)->commandType != CMD_UTILITY &&
+			linitial_node(PlannedStmt, stmt_list)->rowMarks != NIL)
 			ereport(ERROR,
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 					 errmsg("DECLARE SCROLL CURSOR ... FOR UPDATE/SHARE is not supported"),
@@ -1274,7 +1271,7 @@ SPI_cursor_open_internal(const char *name, SPIPlanPtr plan,
 
 		foreach(lc, stmt_list)
 		{
-			PlannedStmt *pstmt = castNode(PlannedStmt, lfirst(lc));
+			PlannedStmt *pstmt = lfirst_node(PlannedStmt, lc);
 
 			if (!CommandIsReadOnly(pstmt))
 			{
@@ -1317,6 +1314,9 @@ SPI_cursor_open_internal(const char *name, SPIPlanPtr plan,
 	PortalStart(portal, paramLI, 0, snapshot);
 
 	Assert(portal->strategy != PORTAL_MULTI_QUERY);
+
+	/* Pop the error context stack */
+	error_context_stack = spierrcontext.previous;
 
 	/* Pop the SPI stack */
 	_SPI_end_call(true);
@@ -1770,7 +1770,7 @@ _SPI_prepare_plan(const char *src, SPIPlanPtr plan)
 
 	foreach(list_item, raw_parsetree_list)
 	{
-		RawStmt    *parsetree = castNode(RawStmt, lfirst(list_item));
+		RawStmt    *parsetree = lfirst_node(RawStmt, list_item);
 		List	   *stmt_list;
 		CachedPlanSource *plansource;
 
@@ -1874,7 +1874,7 @@ _SPI_prepare_oneshot_plan(const char *src, SPIPlanPtr plan)
 
 	foreach(list_item, raw_parsetree_list)
 	{
-		RawStmt    *parsetree = castNode(RawStmt, lfirst(list_item));
+		RawStmt    *parsetree = lfirst_node(RawStmt, list_item);
 		CachedPlanSource *plansource;
 
 		plansource = CreateOneShotCachedPlan(parsetree,
@@ -1990,8 +1990,8 @@ _SPI_execute_plan(SPIPlanPtr plan, ParamListInfo paramLI,
 				stmt_list = pg_analyze_and_rewrite_params(parsetree,
 														  src,
 														  plan->parserSetup,
-													   plan->parserSetupArg,
-													  _SPI_current->queryEnv);
+														plan->parserSetupArg,
+													 _SPI_current->queryEnv);
 			}
 			else
 			{
@@ -2035,7 +2035,7 @@ _SPI_execute_plan(SPIPlanPtr plan, ParamListInfo paramLI,
 
 		foreach(lc2, stmt_list)
 		{
-			PlannedStmt *stmt = castNode(PlannedStmt, lfirst(lc2));
+			PlannedStmt *stmt = lfirst_node(PlannedStmt, lc2);
 			bool		canSetTag = stmt->canSetTag;
 			DestReceiver *dest;
 
@@ -2668,7 +2668,7 @@ SPI_register_relation(EphemeralNamedRelation enr)
 	if (enr == NULL || enr->md.name == NULL)
 		return SPI_ERROR_ARGUMENT;
 
-	res = _SPI_begin_call(false);	/* keep current memory context */
+	res = _SPI_begin_call(false);		/* keep current memory context */
 	if (res < 0)
 		return res;
 
@@ -2702,7 +2702,7 @@ SPI_unregister_relation(const char *name)
 	if (name == NULL)
 		return SPI_ERROR_ARGUMENT;
 
-	res = _SPI_begin_call(false);	/* keep current memory context */
+	res = _SPI_begin_call(false);		/* keep current memory context */
 	if (res < 0)
 		return res;
 
@@ -2735,8 +2735,8 @@ SPI_register_trigger_data(TriggerData *tdata)
 	if (tdata->tg_newtable)
 	{
 		EphemeralNamedRelation enr =
-			palloc(sizeof(EphemeralNamedRelationData));
-		int		rc;
+		palloc(sizeof(EphemeralNamedRelationData));
+		int			rc;
 
 		enr->md.name = tdata->tg_trigger->tgnewtable;
 		enr->md.reliddesc = tdata->tg_relation->rd_id;
@@ -2752,8 +2752,8 @@ SPI_register_trigger_data(TriggerData *tdata)
 	if (tdata->tg_oldtable)
 	{
 		EphemeralNamedRelation enr =
-			palloc(sizeof(EphemeralNamedRelationData));
-		int		rc;
+		palloc(sizeof(EphemeralNamedRelationData));
+		int			rc;
 
 		enr->md.name = tdata->tg_trigger->tgoldtable;
 		enr->md.reliddesc = tdata->tg_relation->rd_id;

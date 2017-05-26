@@ -218,8 +218,8 @@ _hash_get_totalbuckets(uint32 splitpoint_phase)
 /*
  * _hash_checkpage -- sanity checks on the format of all hash pages
  *
- * If flags is not zero, it is a bitwise OR of the acceptable values of
- * hasho_flag.
+ * If flags is not zero, it is a bitwise OR of the acceptable page types
+ * (values of hasho_flag & LH_PAGE_TYPE).
  */
 void
 _hash_checkpage(Relation rel, Buffer buf, int flags)
@@ -528,20 +528,21 @@ _hash_get_newbucket_from_oldbucket(Relation rel, Bucket old_bucket,
 void
 _hash_kill_items(IndexScanDesc scan)
 {
-	HashScanOpaque	so = (HashScanOpaque) scan->opaque;
-	Page	page;
-	HashPageOpaque	opaque;
-	OffsetNumber	offnum, maxoff;
-	int	numKilled = so->numKilled;
-	int		i;
-	bool	killedsomething = false;
+	HashScanOpaque so = (HashScanOpaque) scan->opaque;
+	Page		page;
+	HashPageOpaque opaque;
+	OffsetNumber offnum,
+				maxoff;
+	int			numKilled = so->numKilled;
+	int			i;
+	bool		killedsomething = false;
 
 	Assert(so->numKilled > 0);
 	Assert(so->killedItems != NULL);
 
 	/*
-	 * Always reset the scan state, so we don't look for same
-	 * items on other pages.
+	 * Always reset the scan state, so we don't look for same items on other
+	 * pages.
 	 */
 	so->numKilled = 0;
 
@@ -555,7 +556,7 @@ _hash_kill_items(IndexScanDesc scan)
 
 		while (offnum <= maxoff)
 		{
-			ItemId	iid = PageGetItemId(page, offnum);
+			ItemId		iid = PageGetItemId(page, offnum);
 			IndexTuple	ituple = (IndexTuple) PageGetItem(page, iid);
 
 			if (ItemPointerEquals(&ituple->t_tid, &so->killedItems[i].heapTid))
@@ -563,15 +564,15 @@ _hash_kill_items(IndexScanDesc scan)
 				/* found the item */
 				ItemIdMarkDead(iid);
 				killedsomething = true;
-				break;		/* out of inner search loop */
+				break;			/* out of inner search loop */
 			}
 			offnum = OffsetNumberNext(offnum);
 		}
 	}
 
 	/*
-	 * Since this can be redone later if needed, mark as dirty hint.
-	 * Whenever we mark anything LP_DEAD, we also set the page's
+	 * Since this can be redone later if needed, mark as dirty hint. Whenever
+	 * we mark anything LP_DEAD, we also set the page's
 	 * LH_PAGE_HAS_DEAD_TUPLES flag, which is likewise just a hint.
 	 */
 	if (killedsomething)

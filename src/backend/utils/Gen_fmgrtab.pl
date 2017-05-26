@@ -59,40 +59,34 @@ my $data = $catalogs->{pg_proc}->{data};
 foreach my $row (@$data)
 {
 
-	# To construct fmgroids.h and fmgrtab.c, we need to inspect some
-	# of the individual data fields.  Just splitting on whitespace
-	# won't work, because some quoted fields might contain internal
-	# whitespace.  We handle this by folding them all to a simple
-	# "xxx". Fortunately, this script doesn't need to look at any
-	# fields that might need quoting, so this simple hack is
-	# sufficient.
-	$row->{bki_values} =~ s/"[^"]*"/"xxx"/g;
-	@{$row}{@attnames} = split /\s+/, $row->{bki_values};
+	# Split line into tokens without interpreting their meaning.
+	my %bki_values;
+	@bki_values{@attnames} = Catalog::SplitDataLine($row->{bki_values});
 
 	# Select out just the rows for internal-language procedures.
 	# Note assumption here that INTERNALlanguageId is 12.
-	next if $row->{prolang} ne '12';
+	next if $bki_values{prolang} ne '12';
 
 	push @fmgr,
 	  { oid    => $row->{oid},
-		strict => $row->{proisstrict},
-		retset => $row->{proretset},
-		nargs  => $row->{pronargs},
-		prosrc => $row->{prosrc}, };
-
-	# Hack to work around memory leak in some versions of Perl
-	$row = undef;
+		strict => $bki_values{proisstrict},
+		retset => $bki_values{proretset},
+		nargs  => $bki_values{pronargs},
+		prosrc => $bki_values{prosrc}, };
 }
 
 # Emit headers for both files
-my $tmpext   = ".tmp$$";
-my $oidsfile = $output_path . 'fmgroids.h';
+my $tmpext     = ".tmp$$";
+my $oidsfile   = $output_path . 'fmgroids.h';
 my $protosfile = $output_path . 'fmgrprotos.h';
-my $tabfile  = $output_path . 'fmgrtab.c';
+my $tabfile    = $output_path . 'fmgrtab.c';
 
-open my $ofh, '>', $oidsfile . $tmpext or die "Could not open $oidsfile$tmpext: $!";
-open my $pfh, '>', $protosfile . $tmpext or die "Could not open $protosfile$tmpext: $!";
-open my $tfh, '>', $tabfile . $tmpext  or die "Could not open $tabfile$tmpext: $!";
+open my $ofh, '>', $oidsfile . $tmpext
+  or die "Could not open $oidsfile$tmpext: $!";
+open my $pfh, '>', $protosfile . $tmpext
+  or die "Could not open $protosfile$tmpext: $!";
+open my $tfh, '>', $tabfile . $tmpext
+  or die "Could not open $tabfile$tmpext: $!";
 
 print $ofh
 qq|/*-------------------------------------------------------------------------
@@ -138,7 +132,7 @@ qq|/*-------------------------------------------------------------------------
  * fmgrprotos.h
  *    Prototypes for built-in functions.
  *
- * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2017, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * NOTES
@@ -228,9 +222,9 @@ close($pfh);
 close($tfh);
 
 # Finally, rename the completed files into place.
-Catalog::RenameTempFile($oidsfile, $tmpext);
+Catalog::RenameTempFile($oidsfile,   $tmpext);
 Catalog::RenameTempFile($protosfile, $tmpext);
-Catalog::RenameTempFile($tabfile,  $tmpext);
+Catalog::RenameTempFile($tabfile,    $tmpext);
 
 sub usage
 {

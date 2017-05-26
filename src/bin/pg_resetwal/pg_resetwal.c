@@ -434,7 +434,7 @@ main(int argc, char *argv[])
 	if (ControlFile.state != DB_SHUTDOWNED && !force)
 	{
 		printf(_("The database server was not shut down cleanly.\n"
-			   "Resetting the transaction log might cause data to be lost.\n"
+			   "Resetting the write-ahead log might cause data to be lost.\n"
 				 "If you want to proceed anyway, use -f to force reset.\n"));
 		exit(1);
 	}
@@ -447,7 +447,7 @@ main(int argc, char *argv[])
 	KillExistingArchiveStatus();
 	WriteEmptyXLOG();
 
-	printf(_("Transaction log reset\n"));
+	printf(_("Write-ahead log reset\n"));
 	return 0;
 }
 
@@ -885,8 +885,8 @@ FindEndOfXLOG(void)
 	newXlogSegNo = ControlFile.checkPointCopy.redo / ControlFile.xlog_seg_size;
 
 	/*
-	 * Scan the pg_wal directory to find existing WAL segment files. We
-	 * assume any present have been used; in most scenarios this should be
+	 * Scan the pg_wal directory to find existing WAL segment files. We assume
+	 * any present have been used; in most scenarios this should be
 	 * conservative, because of xlog.c's attempts to pre-create files.
 	 */
 	xldir = opendir(XLOGDIR);
@@ -958,7 +958,7 @@ KillExistingXLOG(void)
 {
 	DIR		   *xldir;
 	struct dirent *xlde;
-	char		path[MAXPGPATH];
+	char		path[MAXPGPATH + sizeof(XLOGDIR)];
 
 	xldir = opendir(XLOGDIR);
 	if (xldir == NULL)
@@ -973,7 +973,7 @@ KillExistingXLOG(void)
 		if (IsXLogFileName(xlde->d_name) ||
 			IsPartialXLogFileName(xlde->d_name))
 		{
-			snprintf(path, MAXPGPATH, "%s/%s", XLOGDIR, xlde->d_name);
+			snprintf(path, sizeof(path), "%s/%s", XLOGDIR, xlde->d_name);
 			if (unlink(path) < 0)
 			{
 				fprintf(stderr, _("%s: could not delete file \"%s\": %s\n"),
@@ -1005,11 +1005,11 @@ KillExistingXLOG(void)
 static void
 KillExistingArchiveStatus(void)
 {
+#define ARCHSTATDIR XLOGDIR "/archive_status"
+
 	DIR		   *xldir;
 	struct dirent *xlde;
-	char		path[MAXPGPATH];
-
-#define ARCHSTATDIR XLOGDIR "/archive_status"
+	char		path[MAXPGPATH + sizeof(ARCHSTATDIR)];
 
 	xldir = opendir(ARCHSTATDIR);
 	if (xldir == NULL)
@@ -1027,7 +1027,7 @@ KillExistingArchiveStatus(void)
 			 strcmp(xlde->d_name + XLOG_FNAME_LEN, ".partial.ready") == 0 ||
 			 strcmp(xlde->d_name + XLOG_FNAME_LEN, ".partial.done") == 0))
 		{
-			snprintf(path, MAXPGPATH, "%s/%s", ARCHSTATDIR, xlde->d_name);
+			snprintf(path, sizeof(path), "%s/%s", ARCHSTATDIR, xlde->d_name);
 			if (unlink(path) < 0)
 			{
 				fprintf(stderr, _("%s: could not delete file \"%s\": %s\n"),
@@ -1159,7 +1159,7 @@ WriteEmptyXLOG(void)
 static void
 usage(void)
 {
-	printf(_("%s resets the PostgreSQL transaction log.\n\n"), progname);
+	printf(_("%s resets the PostgreSQL write-ahead log.\n\n"), progname);
 	printf(_("Usage:\n  %s [OPTION]... DATADIR\n\n"), progname);
 	printf(_("Options:\n"));
 	printf(_("  -c XID,XID       set oldest and newest transactions bearing commit timestamp\n"));
@@ -1167,7 +1167,7 @@ usage(void)
 	printf(_(" [-D] DATADIR      data directory\n"));
 	printf(_("  -e XIDEPOCH      set next transaction ID epoch\n"));
 	printf(_("  -f               force update to be done\n"));
-	printf(_("  -l XLOGFILE      force minimum WAL starting location for new transaction log\n"));
+	printf(_("  -l WALFILE       force minimum WAL starting location for new write-ahead log\n"));
 	printf(_("  -m MXID,MXID     set next and oldest multitransaction ID\n"));
 	printf(_("  -n               no update, just show what would be done (for testing)\n"));
 	printf(_("  -o OID           set next OID\n"));

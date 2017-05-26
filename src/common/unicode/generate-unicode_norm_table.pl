@@ -16,7 +16,7 @@ my $FH;
 
 # Read list of codes that should be excluded from re-composition.
 my @composition_exclusion_codes = ();
-open($FH, "CompositionExclusions.txt")
+open($FH, '<', "CompositionExclusions.txt")
   or die "Could not open CompositionExclusions.txt: $!.";
 while (my $line = <$FH>)
 {
@@ -32,9 +32,11 @@ close $FH;
 # and character decomposition mapping
 my @characters     = ();
 my %character_hash = ();
-open($FH, "UnicodeData.txt") or die "Could not open UnicodeData.txt: $!.";
+open($FH, '<', "UnicodeData.txt")
+  or die "Could not open UnicodeData.txt: $!.";
 while (my $line = <$FH>)
 {
+
 	# Split the line wanted and get the fields needed:
 	# - Unicode code value
 	# - Canonical Combining Class
@@ -63,7 +65,7 @@ close $FH;
 my $num_characters = scalar @characters;
 
 # Start writing out the output file
-open my $OUTPUT, "> $output_file"
+open my $OUTPUT, '>', $output_file
   or die "Could not open output file $output_file: $!\n";
 
 print $OUTPUT <<HEADER;
@@ -141,6 +143,7 @@ foreach my $char (@characters)
 
 	if ($decomp_size == 2)
 	{
+
 		# Should this be used for recomposition?
 		if ($compat)
 		{
@@ -173,6 +176,7 @@ foreach my $char (@characters)
 	}
 	elsif ($decomp_size == 1 && length($first_decomp) <= 4)
 	{
+
 		# The decomposition consists of a single codepoint, and it fits
 		# in a uint16, so we can store it "inline" in the main table.
 		$flags .= " | DECOMP_INLINE";
@@ -201,6 +205,7 @@ foreach my $char (@characters)
 	print $OUTPUT "," unless ($code eq $last_code);
 	if ($comment ne "")
 	{
+
 		# If the line is wide already, indent the comment with one tab,
 		# otherwise with two. This is to make the output match the way
 		# pgindent would mangle it. (This is quite hacky. To do this

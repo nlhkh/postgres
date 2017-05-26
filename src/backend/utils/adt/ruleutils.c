@@ -24,6 +24,7 @@
 #include "access/sysattr.h"
 #include "catalog/dependency.h"
 #include "catalog/indexing.h"
+#include "catalog/partition.h"
 #include "catalog/pg_aggregate.h"
 #include "catalog/pg_am.h"
 #include "catalog/pg_authid.h"
@@ -318,9 +319,9 @@ static char *pg_get_indexdef_worker(Oid indexrelid, int colno,
 					   const Oid *excludeOps,
 					   bool attrsOnly, bool showTblSpc,
 					   int prettyFlags, bool missing_ok);
-static char *pg_get_statisticsext_worker(Oid statextid, bool missing_ok);
+static char *pg_get_statisticsobj_worker(Oid statextid, bool missing_ok);
 static char *pg_get_partkeydef_worker(Oid relid, int prettyFlags,
-						 bool attrsOnly);
+						 bool attrsOnly, bool missing_ok);
 static char *pg_get_constraintdef_worker(Oid constraintId, bool fullCommand,
 							int prettyFlags, bool missing_ok);
 static text *pg_get_expr_worker(text *expr, Oid relid, const char *relname,
@@ -1424,16 +1425,16 @@ pg_get_indexdef_worker(Oid indexrelid, int colno,
 }
 
 /*
- * pg_get_statisticsextdef
+ * pg_get_statisticsobjdef
  *		Get the definition of an extended statistics object
  */
 Datum
-pg_get_statisticsextdef(PG_FUNCTION_ARGS)
+pg_get_statisticsobjdef(PG_FUNCTION_ARGS)
 {
 	Oid			statextid = PG_GETARG_OID(0);
 	char	   *res;
 
-	res = pg_get_statisticsext_worker(statextid, true);
+	res = pg_get_statisticsobj_worker(statextid, true);
 
 	if (res == NULL)
 		PG_RETURN_NULL();
@@ -1445,9 +1446,9 @@ pg_get_statisticsextdef(PG_FUNCTION_ARGS)
  * Internal workhorse to decompile an extended statistics object.
  */
 static char *
-pg_get_statisticsext_worker(Oid statextid, bool missing_ok)
+pg_get_statisticsobj_worker(Oid statextid, bool missing_ok)
 {
-	Form_pg_statistic_ext	statextrec;
+	Form_pg_statistic_ext statextrec;
 	HeapTuple	statexttup;
 	StringInfoData buf;
 	int			colno;
@@ -1466,30 +1467,29 @@ pg_get_statisticsext_worker(Oid statextid, bool missing_ok)
 	{
 		if (missing_ok)
 			return NULL;
-		elog(ERROR, "cache lookup failed for extended statistics %u", statextid);
+		elog(ERROR, "cache lookup failed for statistics object %u", statextid);
 	}
 
 	statextrec = (Form_pg_statistic_ext) GETSTRUCT(statexttup);
 
 	initStringInfo(&buf);
 
-	nsp = get_namespace_name(statextrec->stanamespace);
+	nsp = get_namespace_name(statextrec->stxnamespace);
 	appendStringInfo(&buf, "CREATE STATISTICS %s",
 					 quote_qualified_identifier(nsp,
-												NameStr(statextrec->staname)));
+											  NameStr(statextrec->stxname)));
 
 	/*
-	 * Lookup the staenabled column so that we know how to handle the WITH
-	 * clause.
+	 * Decode the stxkind column so that we know which stats types to print.
 	 */
 	datum = SysCacheGetAttr(STATEXTOID, statexttup,
-							Anum_pg_statistic_ext_staenabled, &isnull);
+							Anum_pg_statistic_ext_stxkind, &isnull);
 	Assert(!isnull);
 	arr = DatumGetArrayTypeP(datum);
 	if (ARR_NDIM(arr) != 1 ||
 		ARR_HASNULL(arr) ||
 		ARR_ELEMTYPE(arr) != CHAROID)
-		elog(ERROR, "staenabled is not a 1-D char array");
+		elog(ERROR, "stxkind is not a 1-D char array");
 	enabled = (char *) ARR_DATA_PTR(arr);
 
 	ndistinct_enabled = false;
@@ -1504,40 +1504,39 @@ pg_get_statisticsext_worker(Oid statextid, bool missing_ok)
 	}
 
 	/*
-	 * If any option is disabled, then we'll need to append a WITH clause to
-	 * show which options are enabled.  We omit the WITH clause on purpose
+	 * If any option is disabled, then we'll need to append the types clause
+	 * to show which options are enabled.  We omit the types clause on purpose
 	 * when all options are enabled, so a pg_dump/pg_restore will create all
 	 * statistics types on a newer postgres version, if the statistics had all
 	 * options enabled on the original version.
 	 */
 	if (!ndistinct_enabled || !dependencies_enabled)
 	{
-		appendStringInfoString(&buf, " WITH (");
+		appendStringInfoString(&buf, " (");
 		if (ndistinct_enabled)
 			appendStringInfoString(&buf, "ndistinct");
 		else if (dependencies_enabled)
 			appendStringInfoString(&buf, "dependencies");
-
 		appendStringInfoChar(&buf, ')');
 	}
 
-	appendStringInfoString(&buf, " ON (");
+	appendStringInfoString(&buf, " ON ");
 
-	for (colno = 0; colno < statextrec->stakeys.dim1; colno++)
+	for (colno = 0; colno < statextrec->stxkeys.dim1; colno++)
 	{
-		AttrNumber	attnum = statextrec->stakeys.values[colno];
+		AttrNumber	attnum = statextrec->stxkeys.values[colno];
 		char	   *attname;
 
 		if (colno > 0)
 			appendStringInfoString(&buf, ", ");
 
-		attname = get_relid_attribute_name(statextrec->starelid, attnum);
+		attname = get_relid_attribute_name(statextrec->stxrelid, attnum);
 
 		appendStringInfoString(&buf, quote_identifier(attname));
 	}
 
-	appendStringInfo(&buf, ") FROM %s",
-					 generate_relation_name(statextrec->starelid, NIL));
+	appendStringInfo(&buf, " FROM %s",
+					 generate_relation_name(statextrec->stxrelid, NIL));
 
 	ReleaseSysCache(statexttup);
 
@@ -1555,10 +1554,14 @@ Datum
 pg_get_partkeydef(PG_FUNCTION_ARGS)
 {
 	Oid			relid = PG_GETARG_OID(0);
+	char	   *res;
 
-	PG_RETURN_TEXT_P(string_to_text(pg_get_partkeydef_worker(relid,
-														PRETTYFLAG_INDENT,
-															 false)));
+	res = pg_get_partkeydef_worker(relid, PRETTYFLAG_INDENT, false, true);
+
+	if (res == NULL)
+		PG_RETURN_NULL();
+
+	PG_RETURN_TEXT_P(string_to_text(res));
 }
 
 /* Internal version that just reports the column definitions */
@@ -1568,7 +1571,7 @@ pg_get_partkeydef_columns(Oid relid, bool pretty)
 	int			prettyFlags;
 
 	prettyFlags = pretty ? PRETTYFLAG_PAREN | PRETTYFLAG_INDENT : PRETTYFLAG_INDENT;
-	return pg_get_partkeydef_worker(relid, prettyFlags, true);
+	return pg_get_partkeydef_worker(relid, prettyFlags, true, false);
 }
 
 /*
@@ -1576,7 +1579,7 @@ pg_get_partkeydef_columns(Oid relid, bool pretty)
  */
 static char *
 pg_get_partkeydef_worker(Oid relid, int prettyFlags,
-						 bool attrsOnly)
+						 bool attrsOnly, bool missing_ok)
 {
 	Form_pg_partitioned_table form;
 	HeapTuple	tuple;
@@ -1594,7 +1597,11 @@ pg_get_partkeydef_worker(Oid relid, int prettyFlags,
 
 	tuple = SearchSysCache1(PARTRELID, ObjectIdGetDatum(relid));
 	if (!HeapTupleIsValid(tuple))
+	{
+		if (missing_ok)
+			return NULL;
 		elog(ERROR, "cache lookup failed for partition key of %u", relid);
+	}
 
 	form = (Form_pg_partitioned_table) GETSTRUCT(tuple);
 
@@ -1718,6 +1725,37 @@ pg_get_partkeydef_worker(Oid relid, int prettyFlags,
 	ReleaseSysCache(tuple);
 
 	return buf.data;
+}
+
+/*
+ * pg_get_partition_constraintdef
+ *
+ * Returns partition constraint expression as a string for the input relation
+ */
+Datum
+pg_get_partition_constraintdef(PG_FUNCTION_ARGS)
+{
+	Oid			relationId = PG_GETARG_OID(0);
+	Expr	   *constr_expr;
+	int			prettyFlags;
+	List	   *context;
+	char	   *consrc;
+
+	constr_expr = get_partition_qual_relid(relationId);
+
+	/* Quick exit if not a partition */
+	if (constr_expr == NULL)
+		PG_RETURN_NULL();
+
+	/*
+	 * Deparse and return the constraint expression.
+	 */
+	prettyFlags = PRETTYFLAG_INDENT;
+	context = deparse_context_for(get_relation_name(relationId), relationId);
+	consrc = deparse_expression_pretty((Node *) constr_expr, context, false,
+									   false, prettyFlags, 0);
+
+	PG_RETURN_TEXT_P(string_to_text(consrc));
 }
 
 /*
@@ -7809,7 +7847,7 @@ get_rule_expr(Node *node, deparse_context *context,
 				appendStringInfoString(buf, "(alternatives: ");
 				foreach(lc, asplan->subplans)
 				{
-					SubPlan    *splan = castNode(SubPlan, lfirst(lc));
+					SubPlan    *splan = lfirst_node(SubPlan, lc);
 
 					if (splan->useHashTable)
 						appendStringInfo(buf, "hashed %s", splan->plan_name);
@@ -8364,7 +8402,7 @@ get_rule_expr(Node *node, deparse_context *context,
 							get_rule_expr((Node *) linitial(xexpr->args),
 										  context, true);
 
-							con = castNode(Const, lsecond(xexpr->args));
+							con = lsecond_node(Const, xexpr->args);
 							Assert(!con->constisnull);
 							if (DatumGetBool(con->constvalue))
 								appendStringInfoString(buf,
@@ -8387,7 +8425,7 @@ get_rule_expr(Node *node, deparse_context *context,
 							else
 								get_rule_expr((Node *) con, context, false);
 
-							con = castNode(Const, lthird(xexpr->args));
+							con = lthird_node(Const, xexpr->args);
 							if (con->constisnull)
 								 /* suppress STANDALONE NO VALUE */ ;
 							else
@@ -8899,7 +8937,7 @@ get_agg_expr(Aggref *aggref, deparse_context *context,
 	 */
 	if (DO_AGGSPLIT_COMBINE(aggref->aggsplit))
 	{
-		TargetEntry *tle = castNode(TargetEntry, linitial(aggref->args));
+		TargetEntry *tle = linitial_node(TargetEntry, aggref->args);
 
 		Assert(list_length(aggref->args) == 1);
 		resolve_special_varno((Node *) tle->expr, context, original_aggref,
@@ -9360,7 +9398,7 @@ get_sublink_expr(SubLink *sublink, deparse_context *context)
 			sep = "";
 			foreach(l, ((BoolExpr *) sublink->testexpr)->args)
 			{
-				OpExpr	   *opexpr = castNode(OpExpr, lfirst(l));
+				OpExpr	   *opexpr = lfirst_node(OpExpr, l);
 
 				appendStringInfoString(buf, sep);
 				get_rule_expr(linitial(opexpr->args), context, true);

@@ -469,11 +469,11 @@ DefineView(ViewStmt *stmt, const char *queryString,
 	if (stmt->withCheckOption == LOCAL_CHECK_OPTION)
 		stmt->options = lappend(stmt->options,
 								makeDefElem("check_option",
-											(Node *) makeString("local"), -1));
+										  (Node *) makeString("local"), -1));
 	else if (stmt->withCheckOption == CASCADED_CHECK_OPTION)
 		stmt->options = lappend(stmt->options,
 								makeDefElem("check_option",
-											(Node *) makeString("cascaded"), -1));
+									   (Node *) makeString("cascaded"), -1));
 
 	/*
 	 * Check that the view is auto-updatable if WITH CHECK OPTION was
@@ -516,7 +516,7 @@ DefineView(ViewStmt *stmt, const char *queryString,
 
 		foreach(targetList, viewParse->targetList)
 		{
-			TargetEntry *te = castNode(TargetEntry, lfirst(targetList));
+			TargetEntry *te = lfirst_node(TargetEntry, targetList);
 
 			/* junk columns don't get aliases */
 			if (te->resjunk)

@@ -1073,8 +1073,8 @@ build_index_paths(PlannerInfo *root, RelOptInfo *rel,
 									  true);
 
 			/*
-			 * if, after costing the path, we find that it's not worth
-			 * using parallel workers, just free it.
+			 * if, after costing the path, we find that it's not worth using
+			 * parallel workers, just free it.
 			 */
 			if (ipath->path.parallel_workers > 0)
 				add_partial_path(rel, (Path *) ipath);
@@ -1277,7 +1277,7 @@ generate_bitmap_or_paths(PlannerInfo *root, RelOptInfo *rel,
 
 	foreach(lc, clauses)
 	{
-		RestrictInfo *rinfo = castNode(RestrictInfo, lfirst(lc));
+		RestrictInfo *rinfo = lfirst_node(RestrictInfo, lc);
 		List	   *pathlist;
 		Path	   *bitmapqual;
 		ListCell   *j;
@@ -2188,7 +2188,7 @@ match_clauses_to_index(IndexOptInfo *index,
 
 	foreach(lc, clauses)
 	{
-		RestrictInfo *rinfo = castNode(RestrictInfo, lfirst(lc));
+		RestrictInfo *rinfo = lfirst_node(RestrictInfo, lc);
 
 		match_clause_to_index(index, rinfo, clauseset);
 	}

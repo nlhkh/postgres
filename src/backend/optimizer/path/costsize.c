@@ -664,8 +664,8 @@ cost_index(IndexPath *path, PlannerInfo *root, double loop_count,
 	{
 		/*
 		 * For index only scans compute workers based on number of index pages
-		 * fetched; the number of heap pages we fetch might be so small as
-		 * to effectively rule out parallelism, which we don't want to do.
+		 * fetched; the number of heap pages we fetch might be so small as to
+		 * effectively rule out parallelism, which we don't want to do.
 		 */
 		if (indexonly)
 			rand_heap_pages = -1;
@@ -757,7 +757,7 @@ extract_nonindex_conditions(List *qual_clauses, List *indexquals)
 
 	foreach(lc, qual_clauses)
 	{
-		RestrictInfo *rinfo = castNode(RestrictInfo, lfirst(lc));
+		RestrictInfo *rinfo = lfirst_node(RestrictInfo, lc);
 
 		if (rinfo->pseudoconstant)
 			continue;			/* we may drop pseudoconstants here */
@@ -1990,7 +1990,7 @@ cost_windowagg(Path *path, PlannerInfo *root,
 	 */
 	foreach(lc, windowFuncs)
 	{
-		WindowFunc *wfunc = castNode(WindowFunc, lfirst(lc));
+		WindowFunc *wfunc = lfirst_node(WindowFunc, lc);
 		Cost		wfunccost;
 		QualCost	argcosts;
 
@@ -2188,7 +2188,7 @@ final_cost_nestloop(PlannerInfo *root, NestPath *path,
 	/* For partial paths, scale row estimate. */
 	if (path->path.parallel_workers > 0)
 	{
-		double	parallel_divisor = get_parallel_divisor(&path->path);
+		double		parallel_divisor = get_parallel_divisor(&path->path);
 
 		path->path.rows =
 			clamp_row_est(path->path.rows / parallel_divisor);
@@ -2624,7 +2624,7 @@ final_cost_mergejoin(PlannerInfo *root, MergePath *path,
 	/* For partial paths, scale row estimate. */
 	if (path->jpath.path.parallel_workers > 0)
 	{
-		double	parallel_divisor = get_parallel_divisor(&path->jpath.path);
+		double		parallel_divisor = get_parallel_divisor(&path->jpath.path);
 
 		path->jpath.path.rows =
 			clamp_row_est(path->jpath.path.rows / parallel_divisor);
@@ -3029,7 +3029,7 @@ final_cost_hashjoin(PlannerInfo *root, HashPath *path,
 	/* For partial paths, scale row estimate. */
 	if (path->jpath.path.parallel_workers > 0)
 	{
-		double	parallel_divisor = get_parallel_divisor(&path->jpath.path);
+		double		parallel_divisor = get_parallel_divisor(&path->jpath.path);
 
 		path->jpath.path.rows =
 			clamp_row_est(path->jpath.path.rows / parallel_divisor);
@@ -3066,7 +3066,7 @@ final_cost_hashjoin(PlannerInfo *root, HashPath *path,
 		innerbucketsize = 1.0;
 		foreach(hcl, hashclauses)
 		{
-			RestrictInfo *restrictinfo = castNode(RestrictInfo, lfirst(hcl));
+			RestrictInfo *restrictinfo = lfirst_node(RestrictInfo, hcl);
 			Selectivity thisbucketsize;
 
 			/*
@@ -3760,7 +3760,7 @@ compute_semi_anti_join_factors(PlannerInfo *root,
 		joinquals = NIL;
 		foreach(l, restrictlist)
 		{
-			RestrictInfo *rinfo = castNode(RestrictInfo, lfirst(l));
+			RestrictInfo *rinfo = lfirst_node(RestrictInfo, l);
 
 			if (!rinfo->is_pushed_down)
 				joinquals = lappend(joinquals, rinfo);
@@ -4192,7 +4192,7 @@ calc_joinrel_size_estimate(PlannerInfo *root,
 		/* Grovel through the clauses to separate into two lists */
 		foreach(l, restrictlist)
 		{
-			RestrictInfo *rinfo = castNode(RestrictInfo, lfirst(l));
+			RestrictInfo *rinfo = lfirst_node(RestrictInfo, l);
 
 			if (rinfo->is_pushed_down)
 				pushedquals = lappend(pushedquals, rinfo);
@@ -4568,7 +4568,7 @@ set_subquery_size_estimates(PlannerInfo *root, RelOptInfo *rel)
 	 */
 	foreach(lc, subroot->parse->targetList)
 	{
-		TargetEntry *te = castNode(TargetEntry, lfirst(lc));
+		TargetEntry *te = lfirst_node(TargetEntry, lc);
 		Node	   *texpr = (Node *) te->expr;
 		int32		item_width = 0;
 

@@ -34,10 +34,10 @@ PG_FUNCTION_INFO_V1(hash_metapage_info);
  */
 typedef struct HashPageStat
 {
-	int		live_items;
-	int		dead_items;
-	int		page_size;
-	int		free_size;
+	int			live_items;
+	int			dead_items;
+	int			page_size;
+	int			free_size;
 
 	/* opaque data */
 	BlockNumber hasho_prevblkno;
@@ -45,7 +45,7 @@ typedef struct HashPageStat
 	Bucket		hasho_bucket;
 	uint16		hasho_flag;
 	uint16		hasho_page_id;
-}	HashPageStat;
+} HashPageStat;
 
 
 /*
@@ -99,7 +99,7 @@ verify_hash_page(bytea *raw_page, int flags)
 			case LH_BUCKET_PAGE | LH_OVERFLOW_PAGE:
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-						 errmsg("page is not a hash bucket or overflow page")));
+					  errmsg("page is not a hash bucket or overflow page")));
 			case LH_OVERFLOW_PAGE:
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
@@ -107,7 +107,7 @@ verify_hash_page(bytea *raw_page, int flags)
 			default:
 				elog(ERROR,
 					 "hash page of type %08x not in mask %08x",
-					pagetype, flags);
+					 pagetype, flags);
 		}
 	}
 
@@ -143,7 +143,7 @@ verify_hash_page(bytea *raw_page, int flags)
  * -------------------------------------------------
  */
 static void
-GetHashPageStatistics(Page page, HashPageStat * stat)
+GetHashPageStatistics(Page page, HashPageStat *stat)
 {
 	OffsetNumber maxoff = PageGetMaxOffsetNumber(page);
 	HashPageOpaque opaque = (HashPageOpaque) PageGetSpecialPointer(page);
@@ -184,7 +184,8 @@ hash_page_type(PG_FUNCTION_ARGS)
 	bytea	   *raw_page = PG_GETARG_BYTEA_P(0);
 	Page		page;
 	HashPageOpaque opaque;
-	char	   *type;
+	int			pagetype;
+	const char *type;
 
 	if (!superuser())
 		ereport(ERROR,
@@ -200,13 +201,14 @@ hash_page_type(PG_FUNCTION_ARGS)
 		opaque = (HashPageOpaque) PageGetSpecialPointer(page);
 
 		/* page type (flags) */
-		if (opaque->hasho_flag & LH_META_PAGE)
+		pagetype = opaque->hasho_flag & LH_PAGE_TYPE;
+		if (pagetype == LH_META_PAGE)
 			type = "metapage";
-		else if (opaque->hasho_flag & LH_OVERFLOW_PAGE)
+		else if (pagetype == LH_OVERFLOW_PAGE)
 			type = "overflow";
-		else if (opaque->hasho_flag & LH_BUCKET_PAGE)
+		else if (pagetype == LH_BUCKET_PAGE)
 			type = "bucket";
-		else if (opaque->hasho_flag & LH_BITMAP_PAGE)
+		else if (pagetype == LH_BITMAP_PAGE)
 			type = "bitmap";
 		else
 			type = "unused";
@@ -513,8 +515,8 @@ hash_metapage_info(PG_FUNCTION_ARGS)
 				j;
 	Datum		values[16];
 	bool		nulls[16];
-	Datum       spares[HASH_MAX_SPLITPOINTS];
-	Datum       mapp[HASH_MAX_BITMAPS];
+	Datum		spares[HASH_MAX_SPLITPOINTS];
+	Datum		mapp[HASH_MAX_BITMAPS];
 
 	if (!superuser())
 		ereport(ERROR,

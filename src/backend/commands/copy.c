@@ -37,6 +37,7 @@
 #include "optimizer/clauses.h"
 #include "optimizer/planner.h"
 #include "nodes/makefuncs.h"
+#include "parser/parse_relation.h"
 #include "rewrite/rewriteHandler.h"
 #include "storage/fd.h"
 #include "tcop/tcopprot.h"
@@ -110,7 +111,7 @@ typedef struct CopyStateData
 	List	   *attnumlist;		/* integer list of attnums to copy */
 	char	   *filename;		/* filename, or NULL for STDIN/STDOUT */
 	bool		is_program;		/* is 'filename' a program to popen? */
-	copy_data_source_cb	data_source_cb;		/* function for reading data*/
+	copy_data_source_cb data_source_cb; /* function for reading data */
 	bool		binary;			/* binary format? */
 	bool		oids;			/* include OIDs? */
 	bool		freeze;			/* freeze rows on loading? */
@@ -393,7 +394,7 @@ ReceiveCopyBegin(CopyState cstate)
 			pq_sendint(&buf, format, 2);		/* per-column formats */
 		pq_endmessage(&buf);
 		cstate->copy_dest = COPY_NEW_FE;
-		cstate->fe_msgbuf = makeLongStringInfo();
+		cstate->fe_msgbuf = makeStringInfo();
 	}
 	else
 	{
@@ -531,7 +532,7 @@ CopySendEndOfRow(CopyState cstate)
 			(void) pq_putmessage('d', fe_msgbuf->data, fe_msgbuf->len);
 			break;
 		case COPY_CALLBACK:
-			Assert(false); /* Not yet supported. */
+			Assert(false);		/* Not yet supported. */
 			break;
 	}
 
@@ -787,7 +788,6 @@ DoCopy(ParseState *pstate, const CopyStmt *stmt,
 	Relation	rel;
 	Oid			relid;
 	RawStmt    *query = NULL;
-	List	   *range_table = NIL;
 
 	/* Disallow COPY to/from file or program except to superusers. */
 	if (!pipe && !superuser())
@@ -809,7 +809,6 @@ DoCopy(ParseState *pstate, const CopyStmt *stmt,
 	if (stmt->relation)
 	{
 		TupleDesc	tupDesc;
-		AclMode		required_access = (is_from ? ACL_INSERT : ACL_SELECT);
 		List	   *attnums;
 		ListCell   *cur;
 		RangeTblEntry *rte;
@@ -822,12 +821,8 @@ DoCopy(ParseState *pstate, const CopyStmt *stmt,
 
 		relid = RelationGetRelid(rel);
 
-		rte = makeNode(RangeTblEntry);
-		rte->rtekind = RTE_RELATION;
-		rte->relid = RelationGetRelid(rel);
-		rte->relkind = rel->rd_rel->relkind;
-		rte->requiredPerms = required_access;
-		range_table = list_make1(rte);
+		rte = addRangeTableEntryForRelation(pstate, rel, NULL, false, false);
+		rte->requiredPerms = (is_from ? ACL_INSERT : ACL_SELECT);
 
 		tupDesc = RelationGetDescr(rel);
 		attnums = CopyGetAttnums(tupDesc, rel, stmt->attlist);
@@ -841,7 +836,7 @@ DoCopy(ParseState *pstate, const CopyStmt *stmt,
 			else
 				rte->selectedCols = bms_add_member(rte->selectedCols, attno);
 		}
-		ExecCheckRTPerms(range_table, true);
+		ExecCheckRTPerms(pstate->p_rtable, true);
 
 		/*
 		 * Permission check for row security policies.
@@ -977,7 +972,6 @@ DoCopy(ParseState *pstate, const CopyStmt *stmt,
 
 		cstate = BeginCopyFrom(pstate, rel, stmt->filename, stmt->is_program,
 							   NULL, stmt->attlist, stmt->options);
-		cstate->range_table = range_table;
 		*processed = CopyFrom(cstate);	/* copy from file to database */
 		EndCopyFrom(cstate);
 	}
@@ -1034,7 +1028,7 @@ ProcessCopyOptions(ParseState *pstate,
 	/* Extract options from the statement node tree */
 	foreach(option, options)
 	{
-		DefElem    *defel = castNode(DefElem, lfirst(option));
+		DefElem    *defel = lfirst_node(DefElem, option);
 
 		if (strcmp(defel->defname, "format") == 0)
 		{
@@ -1488,7 +1482,7 @@ BeginCopy(ParseState *pstate,
 			/* examine queries to determine which error message to issue */
 			foreach(lc, rewritten)
 			{
-				Query	   *q = castNode(Query, lfirst(lc));
+				Query	   *q = lfirst_node(Query, lc);
 
 				if (q->querySource == QSRC_QUAL_INSTEAD_RULE)
 					ereport(ERROR,
@@ -1505,7 +1499,7 @@ BeginCopy(ParseState *pstate,
 					 errmsg("multi-statement DO INSTEAD rules are not supported for COPY")));
 		}
 
-		query = castNode(Query, linitial(rewritten));
+		query = linitial_node(Query, rewritten);
 
 		/* The grammar allows SELECT INTO, but we don't support that */
 		if (query->utilityStmt != NULL &&
@@ -1960,7 +1954,7 @@ CopyTo(CopyState cstate)
 	cstate->null_print_client = cstate->null_print;		/* default */
 
 	/* We use fe_msgbuf as a per-row buffer regardless of copy_dest */
-	cstate->fe_msgbuf = makeLongStringInfo();
+	cstate->fe_msgbuf = makeStringInfo();
 
 	/* Get info about the columns we need to process. */
 	cstate->out_functions = (FmgrInfo *) palloc(num_phys_attrs * sizeof(FmgrInfo));
@@ -2506,8 +2500,7 @@ CopyFrom(CopyState cstate)
 
 	for (;;)
 	{
-		TupleTableSlot *slot,
-				   *oldslot;
+		TupleTableSlot *slot;
 		bool		skip_tuple;
 		Oid			loaded_oid = InvalidOid;
 
@@ -2549,7 +2542,6 @@ CopyFrom(CopyState cstate)
 		ExecStoreTuple(tuple, slot, InvalidBuffer, false);
 
 		/* Determine the partition to heap_insert the tuple into */
-		oldslot = slot;
 		if (cstate->partition_dispatch_info)
 		{
 			int			leaf_part_index;
@@ -2651,7 +2643,7 @@ CopyFrom(CopyState cstate)
 				/* Check the constraints of the tuple */
 				if (cstate->rel->rd_att->constr ||
 					resultRelInfo->ri_PartitionCheck)
-					ExecConstraints(resultRelInfo, slot, oldslot, estate);
+					ExecConstraints(resultRelInfo, slot, estate);
 
 				if (useHeapMultiInsert)
 				{
@@ -2780,6 +2772,9 @@ CopyFrom(CopyState cstate)
 		/* Release the standalone partition tuple descriptor */
 		ExecDropSingleTupleTableSlot(cstate->partition_tuple_slot);
 	}
+
+	/* Close any trigger target relations */
+	ExecCleanUpTriggerState(estate);
 
 	FreeExecutorState(estate);
 
@@ -2917,11 +2912,15 @@ BeginCopyFrom(ParseState *pstate,
 	cstate->cur_attval = NULL;
 
 	/* Set up variables to avoid per-attribute overhead. */
-	initLongStringInfo(&cstate->attribute_buf);
-	initLongStringInfo(&cstate->line_buf);
+	initStringInfo(&cstate->attribute_buf);
+	initStringInfo(&cstate->line_buf);
 	cstate->line_buf_converted = false;
 	cstate->raw_buf = (char *) palloc(RAW_BUF_SIZE + 1);
 	cstate->raw_buf_index = cstate->raw_buf_len = 0;
+
+	/* Assign range table, we'll need it in CopyFrom. */
+	if (pstate)
+		cstate->range_table = pstate->p_rtable;
 
 	tupDesc = RelationGetDescr(cstate->rel);
 	attr = tupDesc->attrs;

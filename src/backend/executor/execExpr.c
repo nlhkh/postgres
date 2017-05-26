@@ -322,7 +322,7 @@ ExecBuildProjectionInfo(List *targetList,
 	/* Now compile each tlist column */
 	foreach(lc, targetList)
 	{
-		TargetEntry *tle = castNode(TargetEntry, lfirst(lc));
+		TargetEntry *tle = lfirst_node(TargetEntry, lc);
 		Var		   *variable = NULL;
 		AttrNumber	attnum = 0;
 		bool		isSafeVar = false;
@@ -2103,7 +2103,9 @@ ExecInitFunc(ExprEvalStep *scratch, Expr *node, List *args, Oid funcid,
 	if (flinfo->fn_retset)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("set-valued function called in context that cannot accept a set")));
+				 errmsg("set-valued function called in context that cannot accept a set"),
+				 parent ? executor_errposition(parent->state,
+										  exprLocation((Node *) node)) : 0));
 
 	/* Build code to evaluate arguments directly into the fcinfo struct */
 	argno = 0;

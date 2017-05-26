@@ -65,7 +65,7 @@ char	   *Dynamic_library_path;
 
 static void *internal_load_library(const char *libname);
 static void incompatible_module_error(const char *libname,
-									  const Pg_magic_struct *module_magic_data) pg_attribute_noreturn();
+		   const Pg_magic_struct *module_magic_data) pg_attribute_noreturn();
 static void internal_unload_library(const char *libname);
 static bool file_exists(const char *name);
 static char *expand_dynamic_library_name(const char *name);
@@ -91,7 +91,7 @@ static const Pg_magic_struct magic_data = PG_MODULE_MAGIC_DATA;
  * at less cost than repeating load_external_function.
  */
 PGFunction
-load_external_function(char *filename, char *funcname,
+load_external_function(const char *filename, const char *funcname,
 					   bool signalNotFound, void **filehandle)
 {
 	char	   *fullname;
@@ -108,8 +108,12 @@ load_external_function(char *filename, char *funcname,
 	if (filehandle)
 		*filehandle = lib_handle;
 
-	/* Look up the function within the library */
-	retval = (PGFunction) pg_dlsym(lib_handle, funcname);
+	/*
+	 * Look up the function within the library.  According to POSIX dlsym()
+	 * should declare its second argument as "const char *", but older
+	 * platforms might not, so for the time being we just cast away const.
+	 */
+	retval = (PGFunction) pg_dlsym(lib_handle, (char *) funcname);
 
 	if (retval == NULL && signalNotFound)
 		ereport(ERROR,
@@ -155,9 +159,10 @@ load_file(const char *filename, bool restricted)
  * Return (PGFunction) NULL if not found.
  */
 PGFunction
-lookup_external_function(void *filehandle, char *funcname)
+lookup_external_function(void *filehandle, const char *funcname)
 {
-	return (PGFunction) pg_dlsym(filehandle, funcname);
+	/* as above, cast away const for the time being */
+	return (PGFunction) pg_dlsym(filehandle, (char *) funcname);
 }
 
 

@@ -792,7 +792,7 @@ rewriteTargetListIU(List *targetList,
 	for (attrno = 1; attrno <= numattrs; attrno++)
 	{
 		TargetEntry *new_tle = new_tles[attrno - 1];
-		bool	apply_default;
+		bool		apply_default;
 
 		att_tup = target_relation->rd_att->attrs[attrno - 1];
 
@@ -806,7 +806,7 @@ rewriteTargetListIU(List *targetList,
 		 * tlist entry is a DEFAULT placeholder node.
 		 */
 		apply_default = ((new_tle == NULL && commandType == CMD_INSERT) ||
-						 (new_tle && new_tle->expr && IsA(new_tle->expr, SetToDefault)));
+			 (new_tle && new_tle->expr && IsA(new_tle->expr, SetToDefault)));
 
 		if (commandType == CMD_INSERT)
 		{
@@ -818,7 +818,7 @@ rewriteTargetListIU(List *targetList,
 							 errmsg("cannot insert into column \"%s\"", NameStr(att_tup->attname)),
 							 errdetail("Column \"%s\" is an identity column defined as GENERATED ALWAYS.",
 									   NameStr(att_tup->attname)),
-							 errhint("Use OVERRIDING SYSTEM VALUE to override.")));
+					   errhint("Use OVERRIDING SYSTEM VALUE to override.")));
 			}
 
 			if (att_tup->attidentity == ATTRIBUTE_IDENTITY_BY_DEFAULT && override == OVERRIDING_USER_VALUE)
@@ -2367,7 +2367,7 @@ view_cols_are_auto_updatable(Query *viewquery,
 	 * there should be a single base relation.
 	 */
 	Assert(list_length(viewquery->jointree->fromlist) == 1);
-	rtr = castNode(RangeTblRef, linitial(viewquery->jointree->fromlist));
+	rtr = linitial_node(RangeTblRef, viewquery->jointree->fromlist);
 
 	/* Initialize the optional return values */
 	if (updatable_cols != NULL)
@@ -2619,7 +2619,7 @@ adjust_view_column_set(Bitmapset *cols, List *targetlist)
 
 			foreach(lc, targetlist)
 			{
-				TargetEntry *tle = (TargetEntry *) lfirst(lc);
+				TargetEntry *tle = lfirst_node(TargetEntry, lc);
 				Var		   *var;
 
 				if (tle->resjunk)
@@ -2806,7 +2806,7 @@ rewriteTargetView(Query *parsetree, Relation view)
 	 * view contains a single base relation.
 	 */
 	Assert(list_length(viewquery->jointree->fromlist) == 1);
-	rtr = castNode(RangeTblRef, linitial(viewquery->jointree->fromlist));
+	rtr = linitial_node(RangeTblRef, viewquery->jointree->fromlist);
 
 	base_rt_index = rtr->rtindex;
 	base_rte = rt_fetch(base_rt_index, viewquery->rtable);
@@ -3162,7 +3162,7 @@ RewriteQuery(Query *parsetree, List *rewrite_events)
 	 */
 	foreach(lc1, parsetree->cteList)
 	{
-		CommonTableExpr *cte = (CommonTableExpr *) lfirst(lc1);
+		CommonTableExpr *cte = lfirst_node(CommonTableExpr, lc1);
 		Query	   *ctequery = castNode(Query, cte->ctequery);
 		List	   *newstuff;
 
@@ -3179,7 +3179,7 @@ RewriteQuery(Query *parsetree, List *rewrite_events)
 		if (list_length(newstuff) == 1)
 		{
 			/* Push the single Query back into the CTE node */
-			ctequery = castNode(Query, linitial(newstuff));
+			ctequery = linitial_node(Query, newstuff);
 			/* WITH queries should never be canSetTag */
 			Assert(!ctequery->canSetTag);
 			cte->ctequery = (Node *) ctequery;
@@ -3275,7 +3275,7 @@ RewriteQuery(Query *parsetree, List *rewrite_events)
 				/* Process the main targetlist ... */
 				parsetree->targetList = rewriteTargetListIU(parsetree->targetList,
 													  parsetree->commandType,
-															parsetree->override,
+														 parsetree->override,
 															rt_entry_relation,
 												   parsetree->resultRelation,
 															&attrnos);

@@ -74,7 +74,9 @@ typedef struct _restoreOptions
 	int			dump_inserts;
 	int			column_inserts;
 	int			if_exists;
+	int			no_publications;	/* Skip publication entries */
 	int			no_security_labels;		/* Skip security label entries */
+	int			no_subscriptions;		/* Skip subscription entries */
 	int			strict_names;
 
 	const char *filename;
@@ -119,7 +121,6 @@ typedef struct _restoreOptions
 	bool	   *idWanted;		/* array showing which dump IDs to emit */
 	int			enable_row_security;
 	int			sequence_data;	/* dump sequence data even in schema-only mode */
-	int			include_subscriptions;
 	int			binary_upgrade;
 } RestoreOptions;
 
@@ -146,6 +147,8 @@ typedef struct _dumpOptions
 	int			column_inserts;
 	int			if_exists;
 	int			no_security_labels;
+	int			no_publications;
+	int			no_subscriptions;
 	int			no_synchronized_snapshots;
 	int			no_unlogged_table_data;
 	int			serializable_deferrable;
@@ -154,8 +157,6 @@ typedef struct _dumpOptions
 	int			outputNoTablespaces;
 	int			use_setsessauth;
 	int			enable_row_security;
-	int			include_subscriptions;
-	int			no_subscription_connect;
 
 	/* default, if no "inclusion" switches appear, is to dump everything */
 	bool		include_everything;

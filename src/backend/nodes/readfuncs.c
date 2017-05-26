@@ -1453,6 +1453,7 @@ _readPlannedStmt(void)
 	READ_NODE_FIELD(rtable);
 	READ_NODE_FIELD(resultRelations);
 	READ_NODE_FIELD(nonleafResultRelations);
+	READ_NODE_FIELD(rootResultRelations);
 	READ_NODE_FIELD(subplans);
 	READ_BITMAPSET_FIELD(rewindPlanIDs);
 	READ_NODE_FIELD(rowMarks);
@@ -1480,6 +1481,7 @@ ReadCommonPlan(Plan *local_node)
 	READ_FLOAT_FIELD(plan_rows);
 	READ_INT_FIELD(plan_width);
 	READ_BOOL_FIELD(parallel_aware);
+	READ_BOOL_FIELD(parallel_safe);
 	READ_INT_FIELD(plan_node_id);
 	READ_NODE_FIELD(targetlist);
 	READ_NODE_FIELD(qual);
@@ -1547,6 +1549,7 @@ _readModifyTable(void)
 	READ_NODE_FIELD(partitioned_rels);
 	READ_NODE_FIELD(resultRelations);
 	READ_INT_FIELD(resultRelIndex);
+	READ_INT_FIELD(rootResultRelIndex);
 	READ_NODE_FIELD(plans);
 	READ_NODE_FIELD(withCheckOptionLists);
 	READ_NODE_FIELD(returningLists);
@@ -2184,8 +2187,6 @@ _readHash(void)
 	READ_OID_FIELD(skewTable);
 	READ_INT_FIELD(skewColumn);
 	READ_BOOL_FIELD(skewInherit);
-	READ_OID_FIELD(skewColType);
-	READ_INT_FIELD(skewColTypmod);
 
 	READ_DONE();
 }

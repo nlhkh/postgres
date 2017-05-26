@@ -112,8 +112,7 @@ static shm_mq_handle **ExecParallelSetupTupleQueues(ParallelContext *pcxt,
 static bool ExecParallelRetrieveInstrumentation(PlanState *planstate,
 							 SharedExecutorInstrumentation *instrumentation);
 
-/* Helper functions that run in the parallel worker. */
-static void ParallelQueryMain(dsm_segment *seg, shm_toc *toc);
+/* Helper function that runs in the parallel worker. */
 static DestReceiver *ExecParallelGetReceiver(dsm_segment *seg, shm_toc *toc);
 
 /*
@@ -123,7 +122,7 @@ static char *
 ExecSerializePlan(Plan *plan, EState *estate)
 {
 	PlannedStmt *pstmt;
-	ListCell   *tlist;
+	ListCell   *lc;
 
 	/* We can't scribble on the original plan, so make a copy. */
 	plan = copyObject(plan);
@@ -137,9 +136,9 @@ ExecSerializePlan(Plan *plan, EState *estate)
 	 * accordingly.  This is sort of a hack; there might be better ways to do
 	 * this...
 	 */
-	foreach(tlist, plan->targetlist)
+	foreach(lc, plan->targetlist)
 	{
-		TargetEntry *tle = (TargetEntry *) lfirst(tlist);
+		TargetEntry *tle = lfirst_node(TargetEntry, lc);
 
 		tle->resjunk = false;
 	}
@@ -162,7 +161,24 @@ ExecSerializePlan(Plan *plan, EState *estate)
 	pstmt->rtable = estate->es_range_table;
 	pstmt->resultRelations = NIL;
 	pstmt->nonleafResultRelations = NIL;
-	pstmt->subplans = estate->es_plannedstmt->subplans;
+
+	/*
+	 * Transfer only parallel-safe subplans, leaving a NULL "hole" in the list
+	 * for unsafe ones (so that the list indexes of the safe ones are
+	 * preserved).  This positively ensures that the worker won't try to run,
+	 * or even do ExecInitNode on, an unsafe subplan.  That's important to
+	 * protect, eg, non-parallel-aware FDWs from getting into trouble.
+	 */
+	pstmt->subplans = NIL;
+	foreach(lc, estate->es_plannedstmt->subplans)
+	{
+		Plan	   *subplan = (Plan *) lfirst(lc);
+
+		if (subplan && !subplan->parallel_safe)
+			subplan = NULL;
+		pstmt->subplans = lappend(pstmt->subplans, subplan);
+	}
+
 	pstmt->rewindPlanIDs = NULL;
 	pstmt->rowMarks = NIL;
 	pstmt->relationOids = NIL;
@@ -393,7 +409,7 @@ ExecInitParallelPlan(PlanState *planstate, EState *estate, int nworkers)
 	pstmt_data = ExecSerializePlan(planstate->plan, estate);
 
 	/* Create a parallel context. */
-	pcxt = CreateParallelContext(ParallelQueryMain, nworkers);
+	pcxt = CreateParallelContext("postgres", "ParallelQueryMain", nworkers);
 	pei->pcxt = pcxt;
 
 	/*
@@ -592,9 +608,9 @@ ExecParallelRetrieveInstrumentation(PlanState *planstate,
 	/*
 	 * Also store the per-worker detail.
 	 *
-	 * Worker instrumentation should be allocated in the same context as
-	 * the regular instrumentation information, which is the per-query
-	 * context. Switch into per-query memory context.
+	 * Worker instrumentation should be allocated in the same context as the
+	 * regular instrumentation information, which is the per-query context.
+	 * Switch into per-query memory context.
 	 */
 	oldcontext = MemoryContextSwitchTo(planstate->state->es_query_cxt);
 	ibytes = mul_size(instrumentation->num_workers, sizeof(Instrumentation));
@@ -814,7 +830,7 @@ ExecParallelInitializeWorker(PlanState *planstate, shm_toc *toc)
  * to do this are also stored in the dsm_segment and can be accessed through
  * the shm_toc.
  */
-static void
+void
 ParallelQueryMain(dsm_segment *seg, shm_toc *toc)
 {
 	BufferUsage *buffer_usage;

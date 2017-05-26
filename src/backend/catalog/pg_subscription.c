@@ -44,11 +44,11 @@ static List *textarray_to_stringlist(ArrayType *textarray);
 Subscription *
 GetSubscription(Oid subid, bool missing_ok)
 {
-	HeapTuple		tup;
-	Subscription   *sub;
-	Form_pg_subscription	subform;
-	Datum			datum;
-	bool			isnull;
+	HeapTuple	tup;
+	Subscription *sub;
+	Form_pg_subscription subform;
+	Datum		datum;
+	bool		isnull;
 
 	tup = SearchSysCache1(SUBSCRIPTIONOID, ObjectIdGetDatum(subid));
 
@@ -75,15 +75,25 @@ GetSubscription(Oid subid, bool missing_ok)
 							Anum_pg_subscription_subconninfo,
 							&isnull);
 	Assert(!isnull);
-	sub->conninfo = pstrdup(TextDatumGetCString(datum));
+	sub->conninfo = TextDatumGetCString(datum);
 
 	/* Get slotname */
 	datum = SysCacheGetAttr(SUBSCRIPTIONOID,
 							tup,
 							Anum_pg_subscription_subslotname,
 							&isnull);
+	if (!isnull)
+		sub->slotname = pstrdup(NameStr(*DatumGetName(datum)));
+	else
+		sub->slotname = NULL;
+
+	/* Get synccommit */
+	datum = SysCacheGetAttr(SUBSCRIPTIONOID,
+							tup,
+							Anum_pg_subscription_subsynccommit,
+							&isnull);
 	Assert(!isnull);
-	sub->slotname = pstrdup(NameStr(*DatumGetName(datum)));
+	sub->synccommit = TextDatumGetCString(datum);
 
 	/* Get publications */
 	datum = SysCacheGetAttr(SUBSCRIPTIONOID,
@@ -105,11 +115,11 @@ GetSubscription(Oid subid, bool missing_ok)
 int
 CountDBSubscriptions(Oid dbid)
 {
-	int				nsubs = 0;
-	Relation		rel;
-	ScanKeyData		scankey;
-	SysScanDesc		scan;
-	HeapTuple		tup;
+	int			nsubs = 0;
+	Relation	rel;
+	ScanKeyData scankey;
+	SysScanDesc scan;
+	HeapTuple	tup;
 
 	rel = heap_open(SubscriptionRelationId, RowExclusiveLock);
 
@@ -139,7 +149,8 @@ FreeSubscription(Subscription *sub)
 {
 	pfree(sub->name);
 	pfree(sub->conninfo);
-	pfree(sub->slotname);
+	if (sub->slotname)
+		pfree(sub->slotname);
 	list_free_deep(sub->publications);
 	pfree(sub);
 }
@@ -170,8 +181,8 @@ get_subscription_oid(const char *subname, bool missing_ok)
 char *
 get_subscription_name(Oid subid)
 {
-	HeapTuple		tup;
-	char		   *subname;
+	HeapTuple	tup;
+	char	   *subname;
 	Form_pg_subscription subform;
 
 	tup = SearchSysCache1(SUBSCRIPTIONOID, ObjectIdGetDatum(subid));
@@ -195,9 +206,10 @@ get_subscription_name(Oid subid)
 static List *
 textarray_to_stringlist(ArrayType *textarray)
 {
-	Datum		   *elems;
-	int				nelems, i;
-	List		   *res = NIL;
+	Datum	   *elems;
+	int			nelems,
+				i;
+	List	   *res = NIL;
 
 	deconstruct_array(textarray,
 					  TEXTOID, -1, false, 'i',
@@ -207,17 +219,21 @@ textarray_to_stringlist(ArrayType *textarray)
 		return NIL;
 
 	for (i = 0; i < nelems; i++)
-		res = lappend(res, makeString(pstrdup(TextDatumGetCString(elems[i]))));
+		res = lappend(res, makeString(TextDatumGetCString(elems[i])));
 
 	return res;
 }
 
 /*
  * Set the state of a subscription table.
+ *
+ * The insert-or-update logic in this function is not concurrency safe so it
+ * might raise an error in rare circumstances.  But if we took a stronger lock
+ * such as ShareRowExclusiveLock, we would risk more deadlocks.
  */
 Oid
 SetSubscriptionRelState(Oid subid, Oid relid, char state,
-						   XLogRecPtr sublsn)
+						XLogRecPtr sublsn)
 {
 	Relation	rel;
 	HeapTuple	tup;
@@ -225,8 +241,7 @@ SetSubscriptionRelState(Oid subid, Oid relid, char state,
 	bool		nulls[Natts_pg_subscription_rel];
 	Datum		values[Natts_pg_subscription_rel];
 
-	/* Prevent concurrent changes. */
-	rel = heap_open(SubscriptionRelRelationId, ShareRowExclusiveLock);
+	rel = heap_open(SubscriptionRelRelationId, RowExclusiveLock);
 
 	/* Try finding existing mapping. */
 	tup = SearchSysCacheCopy2(SUBSCRIPTIONRELMAP,
@@ -234,8 +249,8 @@ SetSubscriptionRelState(Oid subid, Oid relid, char state,
 							  ObjectIdGetDatum(subid));
 
 	/*
-	 * If the record for given table does not exist yet create new
-	 * record, otherwise update the existing one.
+	 * If the record for given table does not exist yet create new record,
+	 * otherwise update the existing one.
 	 */
 	if (!HeapTupleIsValid(tup))
 	{
@@ -357,8 +372,7 @@ RemoveSubscriptionRel(Oid subid, Oid relid)
 	HeapTuple	tup;
 	int			nkeys = 0;
 
-	/* Prevent concurrent changes (see SetSubscriptionRelState()). */
-	rel = heap_open(SubscriptionRelRelationId, ShareRowExclusiveLock);
+	rel = heap_open(SubscriptionRelRelationId, RowExclusiveLock);
 
 	if (OidIsValid(subid))
 	{
@@ -386,14 +400,14 @@ RemoveSubscriptionRel(Oid subid, Oid relid)
 	}
 	heap_endscan(scan);
 
-	heap_close(rel, ShareRowExclusiveLock);
+	heap_close(rel, RowExclusiveLock);
 }
 
 
 /*
  * Get all relations for subscription.
  *
- * Returned list is palloced in current memory context.
+ * Returned list is palloc'ed in current memory context.
  */
 List *
 GetSubscriptionRelations(Oid subid)
@@ -402,8 +416,8 @@ GetSubscriptionRelations(Oid subid)
 	Relation	rel;
 	HeapTuple	tup;
 	int			nkeys = 0;
-	ScanKeyData	skey[2];
-	SysScanDesc	scan;
+	ScanKeyData skey[2];
+	SysScanDesc scan;
 
 	rel = heap_open(SubscriptionRelRelationId, AccessShareLock);
 
@@ -417,12 +431,12 @@ GetSubscriptionRelations(Oid subid)
 
 	while (HeapTupleIsValid(tup = systable_getnext(scan)))
 	{
-		Form_pg_subscription_rel	subrel;
-		SubscriptionRelState	   *relstate;
+		Form_pg_subscription_rel subrel;
+		SubscriptionRelState *relstate;
 
 		subrel = (Form_pg_subscription_rel) GETSTRUCT(tup);
 
-		relstate = (SubscriptionRelState *)palloc(sizeof(SubscriptionRelState));
+		relstate = (SubscriptionRelState *) palloc(sizeof(SubscriptionRelState));
 		relstate->relid = subrel->srrelid;
 		relstate->state = subrel->srsubstate;
 		relstate->lsn = subrel->srsublsn;
@@ -440,7 +454,7 @@ GetSubscriptionRelations(Oid subid)
 /*
  * Get all relations for subscription that are not in a ready state.
  *
- * Returned list is palloced in current memory context.
+ * Returned list is palloc'ed in current memory context.
  */
 List *
 GetSubscriptionNotReadyRelations(Oid subid)
@@ -449,8 +463,8 @@ GetSubscriptionNotReadyRelations(Oid subid)
 	Relation	rel;
 	HeapTuple	tup;
 	int			nkeys = 0;
-	ScanKeyData	skey[2];
-	SysScanDesc	scan;
+	ScanKeyData skey[2];
+	SysScanDesc scan;
 
 	rel = heap_open(SubscriptionRelRelationId, AccessShareLock);
 
@@ -469,12 +483,12 @@ GetSubscriptionNotReadyRelations(Oid subid)
 
 	while (HeapTupleIsValid(tup = systable_getnext(scan)))
 	{
-		Form_pg_subscription_rel	subrel;
-		SubscriptionRelState	   *relstate;
+		Form_pg_subscription_rel subrel;
+		SubscriptionRelState *relstate;
 
 		subrel = (Form_pg_subscription_rel) GETSTRUCT(tup);
 
-		relstate = (SubscriptionRelState *)palloc(sizeof(SubscriptionRelState));
+		relstate = (SubscriptionRelState *) palloc(sizeof(SubscriptionRelState));
 		relstate->relid = subrel->srrelid;
 		relstate->state = subrel->srsubstate;
 		relstate->lsn = subrel->srsublsn;

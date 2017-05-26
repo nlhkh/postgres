@@ -102,7 +102,7 @@ RemoveObjects(DropStmt *stmt)
 				ereport(ERROR,
 						(errcode(ERRCODE_WRONG_OBJECT_TYPE),
 						 errmsg("\"%s\" is an aggregate function",
-								NameListToString(castNode(ObjectWithArgs, object)->objname)),
+				NameListToString(castNode(ObjectWithArgs, object)->objname)),
 				errhint("Use DROP AGGREGATE to drop aggregate functions.")));
 
 			ReleaseSysCache(tup);
@@ -145,7 +145,7 @@ owningrel_does_not_exist_skipping(List *object, const char **msg, char **name)
 	RangeVar   *parent_rel;
 
 	parent_object = list_truncate(list_copy(object),
-								   list_length(object) - 1);
+								  list_length(object) - 1);
 
 	if (schema_does_not_exist_skipping(parent_object, msg, name))
 		return true;
@@ -214,7 +214,7 @@ type_in_list_does_not_exist_skipping(List *typenames, const char **msg,
 
 	foreach(l, typenames)
 	{
-		TypeName   *typeName = castNode(TypeName, lfirst(l));
+		TypeName   *typeName = lfirst_node(TypeName, l);
 
 		if (typeName != NULL)
 		{
@@ -289,7 +289,7 @@ does_not_exist_skipping(ObjectType objtype, Node *object)
 		case OBJECT_STATISTIC_EXT:
 			if (!schema_does_not_exist_skipping(castNode(List, object), &msg, &name))
 			{
-				msg = gettext_noop("extended statistics \"%s\" do not exist, skipping");
+				msg = gettext_noop("statistics object \"%s\" does not exist, skipping");
 				name = NameListToString(castNode(List, object));
 			}
 			break;
@@ -328,6 +328,7 @@ does_not_exist_skipping(ObjectType objtype, Node *object)
 		case OBJECT_FUNCTION:
 			{
 				ObjectWithArgs *owa = castNode(ObjectWithArgs, object);
+
 				if (!schema_does_not_exist_skipping(owa->objname, &msg, &name) &&
 					!type_in_list_does_not_exist_skipping(owa->objargs, &msg, &name))
 				{
@@ -340,6 +341,7 @@ does_not_exist_skipping(ObjectType objtype, Node *object)
 		case OBJECT_AGGREGATE:
 			{
 				ObjectWithArgs *owa = castNode(ObjectWithArgs, object);
+
 				if (!schema_does_not_exist_skipping(owa->objname, &msg, &name) &&
 					!type_in_list_does_not_exist_skipping(owa->objargs, &msg, &name))
 				{
@@ -352,6 +354,7 @@ does_not_exist_skipping(ObjectType objtype, Node *object)
 		case OBJECT_OPERATOR:
 			{
 				ObjectWithArgs *owa = castNode(ObjectWithArgs, object);
+
 				if (!schema_does_not_exist_skipping(owa->objname, &msg, &name) &&
 					!type_in_list_does_not_exist_skipping(owa->objargs, &msg, &name))
 				{
@@ -371,8 +374,8 @@ does_not_exist_skipping(ObjectType objtype, Node *object)
 				{
 					/* XXX quote or no quote? */
 					msg = gettext_noop("cast from type %s to type %s does not exist, skipping");
-					name = TypeNameToString(castNode(TypeName, linitial(castNode(List, object))));
-					args = TypeNameToString(castNode(TypeName, lsecond(castNode(List, object))));
+					name = TypeNameToString(linitial_node(TypeName, castNode(List, object)));
+					args = TypeNameToString(lsecond_node(TypeName, castNode(List, object)));
 				}
 			}
 			break;
@@ -380,7 +383,7 @@ does_not_exist_skipping(ObjectType objtype, Node *object)
 			if (!type_in_list_does_not_exist_skipping(list_make1(linitial(castNode(List, object))), &msg, &name))
 			{
 				msg = gettext_noop("transform for type %s language \"%s\" does not exist, skipping");
-				name = TypeNameToString(castNode(TypeName, linitial(castNode(List, object))));
+				name = TypeNameToString(linitial_node(TypeName, castNode(List, object)));
 				args = strVal(lsecond(castNode(List, object)));
 			}
 			break;
@@ -390,7 +393,7 @@ does_not_exist_skipping(ObjectType objtype, Node *object)
 				msg = gettext_noop("trigger \"%s\" for relation \"%s\" does not exist, skipping");
 				name = strVal(llast(castNode(List, object)));
 				args = NameListToString(list_truncate(list_copy(castNode(List, object)),
-													  list_length(castNode(List, object)) - 1));
+								   list_length(castNode(List, object)) - 1));
 			}
 			break;
 		case OBJECT_POLICY:
@@ -399,7 +402,7 @@ does_not_exist_skipping(ObjectType objtype, Node *object)
 				msg = gettext_noop("policy \"%s\" for relation \"%s\" does not exist, skipping");
 				name = strVal(llast(castNode(List, object)));
 				args = NameListToString(list_truncate(list_copy(castNode(List, object)),
-													  list_length(castNode(List, object)) - 1));
+								   list_length(castNode(List, object)) - 1));
 			}
 			break;
 		case OBJECT_EVENT_TRIGGER:
@@ -412,7 +415,7 @@ does_not_exist_skipping(ObjectType objtype, Node *object)
 				msg = gettext_noop("rule \"%s\" for relation \"%s\" does not exist, skipping");
 				name = strVal(llast(castNode(List, object)));
 				args = NameListToString(list_truncate(list_copy(castNode(List, object)),
-													  list_length(castNode(List, object)) - 1));
+								   list_length(castNode(List, object)) - 1));
 			}
 			break;
 		case OBJECT_FDW:

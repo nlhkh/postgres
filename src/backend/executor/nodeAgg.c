@@ -471,7 +471,7 @@ typedef struct AggStatePerGroupData
 	 * NULL and not auto-replace it with a later input value. Only the first
 	 * non-NULL input will be auto-substituted.
 	 */
-} AggStatePerGroupData;
+}	AggStatePerGroupData;
 
 /*
  * AggStatePerPhaseData - per-grouping-set-phase state
@@ -515,7 +515,7 @@ typedef struct AggStatePerHashData
 	AttrNumber *hashGrpColIdxInput;		/* hash col indices in input slot */
 	AttrNumber *hashGrpColIdxHash;		/* indices in hashtbl tuples */
 	Agg		   *aggnode;		/* original Agg node, for numGroups etc. */
-} AggStatePerHashData;
+}	AggStatePerHashData;
 
 
 static void select_current_set(AggState *aggstate, int setno, bool is_hash);
@@ -2866,7 +2866,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 
 		if (phaseidx > 0)
 		{
-			aggnode = castNode(Agg, list_nth(node->chain, phaseidx - 1));
+			aggnode = list_nth_node(Agg, node->chain, phaseidx - 1);
 			sortnode = castNode(Sort, aggnode->plan.lefttree);
 		}
 		else
@@ -3360,7 +3360,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		 */
 		foreach(arg, pertrans->aggref->args)
 		{
-			TargetEntry *source_tle = castNode(TargetEntry, lfirst(arg));
+			TargetEntry *source_tle = lfirst_node(TargetEntry, arg);
 			TargetEntry *tle;
 
 			tle = flatCopyTargetEntry(source_tle);

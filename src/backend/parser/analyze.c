@@ -829,7 +829,7 @@ transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
 		AttrNumber	attr_num;
 		TargetEntry *tle;
 
-		col = castNode(ResTarget, lfirst(icols));
+		col = lfirst_node(ResTarget, icols);
 		attr_num = (AttrNumber) lfirst_int(attnos);
 
 		tle = makeTargetEntry(expr,
@@ -954,7 +954,7 @@ transformInsertRow(ParseState *pstate, List *exprlist,
 		Expr	   *expr = (Expr *) lfirst(lc);
 		ResTarget  *col;
 
-		col = castNode(ResTarget, lfirst(icols));
+		col = lfirst_node(ResTarget, icols);
 
 		expr = transformAssignedExpr(pstate, expr,
 									 EXPR_KIND_INSERT_TARGET,
@@ -1637,7 +1637,7 @@ transformSetOperationStmt(ParseState *pstate, SelectStmt *stmt)
 	 * Recursively transform the components of the tree.
 	 */
 	sostmt = castNode(SetOperationStmt,
-					  transformSetOperationTree(pstate, stmt, true,	NULL));
+					  transformSetOperationTree(pstate, stmt, true, NULL));
 	Assert(sostmt);
 	qry->setOperations = (Node *) sostmt;
 
@@ -2300,7 +2300,7 @@ transformUpdateTargetList(ParseState *pstate, List *origTlist)
 		}
 		if (orig_tl == NULL)
 			elog(ERROR, "UPDATE target count mismatch --- internal error");
-		origTarget = castNode(ResTarget, lfirst(orig_tl));
+		origTarget = lfirst_node(ResTarget, orig_tl);
 
 		attrno = attnameAttNum(pstate->p_target_relation,
 							   origTarget->name, true);
@@ -2809,8 +2809,8 @@ transformLockingClause(ParseState *pstate, Query *qry, LockingClause *lc,
 									(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 							/*------
 							  translator: %s is a SQL row locking clause such as FOR UPDATE */
-							   errmsg("%s cannot be applied to a named tuplestore",
-									  LCS_asString(lc->strength)),
+									 errmsg("%s cannot be applied to a named tuplestore",
+											LCS_asString(lc->strength)),
 							 parser_errposition(pstate, thisrel->location)));
 							break;
 						default:
